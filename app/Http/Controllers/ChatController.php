@@ -5,63 +5,49 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Flow;
 use App\Models\ChatMessage;
+use Illuminate\Support\Facades\Http; // ضروري جداً
 
 class ChatController extends Controller
 {
-    public function handleMessage(Request $request)
-    {
-        try {
-            $userMessage = $request->input('message');
-            $workflow = Flow::where('name', $userMessage)->first();
+ public function handleMessage(Request $request)
+{
+    try {
+        $userMessage = trim($request->input('message'));
+        $availableWorkflows = \App\Models\Flow::all()->pluck('name')->toArray();
+        $workflowsList = implode(', ', $availableWorkflows);
+        
+        // المفتاح الجديد تبعك
+        $apiKey = 'AIzaSyA__-6-BuicZG9_8rrQZsAvFy1TvqrmoDM'; 
 
-            $nodes = []; // تعريف المصفوفة لضمان إرسالها حتى لو لم توجد أتمتة
-            $executionLog = [];
+        // الرابط الصحيح والموديل المتاح بقائمتك حرفياً
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={$apiKey}";
 
-            if ($workflow) {
-                // تحويل البيانات لمصفوفة
-                $data = is_array($workflow->data) ? $workflow->data : json_decode($workflow->data, true);
-                $nodes = $data['nodes'] ?? [];
+        $response = Http::post($url, [
+            'contents' => [['parts' => [['text' => "Match user intent to one name from this list: [{$workflowsList}]. User said: '{$userMessage}'. Return ONLY the name or 'none'."]]]]
+        ]);
 
-                foreach ($nodes as $node) {
-                    $properties = $node['properties'] ?? [];
-
-                    // 1. فحص نود الـ Log (بناءً على manual_text)
-                    if (isset($properties['manual_text'])) {
-                        $msg = $properties['manual_text'];
-                        $executionLog[] = "📝 Log: ($msg)";
-                    }
-
-                    // 2. فحص نود الـ Color (بناءً على selected_color)
-                    if (isset($properties['selected_color'])) {
-                        $color = $properties['selected_color'];
-                        $executionLog[] = "🎨 Color: ($color)";
-                    }
-                }
-
-                if (empty($executionLog)) {
-                    $reply = "تم العثور على الأتمتة، ولكن لم يتم العثور على عقد (Nodes) متوافقة.";
-                } else {
-                    $reply = "تم تشغيل (" . $workflow->name . ") بنجاح: " . implode(" ", $executionLog);
-                }
-            } else {
-                $reply = "عفواً، ما لقيت أتمتة باسم ($userMessage).";
-            }
-
-            // تخزين الرسالة في جدول المحادثات
-            ChatMessage::create([
-                'user_message' => $userMessage,
-                'bot_reply'    => $reply,
-            ]);
-
-            // التعديل الجوهري هنا: نرسل الـ nodes مع الـ reply
-            return response()->json([
-                'status' => 'success', 
-                'reply' => $reply, 
-                'nodes' => $nodes // هذا السطر هو الذي سيقرأه الجافا سكربت ليطبع في الكونسول
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json(['status' => 'error', 'reply' => 'خطأ برمجي: ' . $e->getMessage()]);
+        if ($response->failed()) {
+            return response()->json(['status' => 'error', 'reply' => 'خطأ من جوجل: ' . $response->body()]);
         }
+
+        $data = $response->json();
+        $chosenWorkflowName = trim(str_replace(["\n", "\r", ".", "*"], '', $data['candidates'][0]['content']['parts'][0]['text'] ?? 'none'));
+
+        $workflow = \App\Models\Flow::where('name', 'LIKE', '%' . $chosenWorkflowName . '%')->first();
+
+        if ($workflow && strtolower($chosenWorkflowName) !== 'none') {
+            $reply = "تمت المطابقة بنجاح: " . $workflow->name;
+            $flowData = is_array($workflow->data) ? $workflow->data : json_decode($workflow->data, true);
+            $nodes = $flowData['nodes'] ?? [];
+        } else {
+            $reply = "الـ AI رد بـ: (" . $chosenWorkflowName . ") والقائمة كانت: [" . $workflowsList . "]";
+            $nodes = [];
+        }
+
+        return response()->json(['status' => 'success', 'reply' => $reply, 'nodes' => $nodes]);
+
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'reply' => 'عطل برمجي: ' . $e->getMessage()]);
     }
+}
 }
