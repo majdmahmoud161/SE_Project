@@ -17,7 +17,7 @@ class ChatController extends Controller
         $workflowsList = implode(', ', $availableWorkflows);
         
         // المفتاح الجديد تبعك
-        $apiKey = 'AIzaSyA__-6-BuicZG9_8rrQZsAvFy1TvqrmoDM'; 
+        $apiKey = 'AIzaSyB1O2jEGmA3ehTQvOXJsGu3GX0uAiQYB_U'; 
 
         // الرابط الصحيح والموديل المتاح بقائمتك حرفياً
         $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={$apiKey}";
